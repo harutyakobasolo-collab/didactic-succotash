@@ -3,10 +3,16 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import FastAPI, Header, HTTPException, Query, status
+from fastapi import FastAPI, HTTPException, Query, Security, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-app = FastAPI(title="SDETFlow Mock Commerce API", version="1.0.0")
+app = FastAPI(
+    title="SDETFlow Mock Commerce API",
+    version="1.0.1",
+    openapi_url="/openapi-v2.json",
+)
+bearer_scheme = HTTPBearer(auto_error=False)
 
 VALID_TOKEN = "sdetflow-demo-token"
 PRODUCTS = [
@@ -26,8 +32,12 @@ class OrderRequest(BaseModel):
     quantity: int = Field(ge=1, le=10)
 
 
-def require_token(authorization: str | None) -> None:
-    if authorization != f"Bearer {VALID_TOKEN}":
+def require_token(credentials: HTTPAuthorizationCredentials | None) -> None:
+    if (
+        credentials is None
+        or credentials.scheme.lower() != "bearer"
+        or credentials.credentials != VALID_TOKEN
+    ):
         raise HTTPException(status_code=401, detail="invalid access token")
 
 
@@ -45,10 +55,12 @@ def login(payload: LoginRequest) -> dict:
 
 @app.get("/api/products")
 def products(
-    authorization: Annotated[str | None, Header()] = None,
     keyword: Annotated[str | None, Query()] = None,
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+    ] = None,
 ) -> dict:
-    require_token(authorization)
+    require_token(credentials)
     items = PRODUCTS
     if keyword:
         items = [item for item in items if keyword.lower() in item["name"].lower()]
@@ -57,9 +69,12 @@ def products(
 
 @app.post("/api/orders", status_code=status.HTTP_201_CREATED)
 def create_order(
-    payload: OrderRequest, authorization: Annotated[str | None, Header()] = None
+    payload: OrderRequest,
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+    ] = None,
 ) -> dict:
-    require_token(authorization)
+    require_token(credentials)
     product = next((item for item in PRODUCTS if item["id"] == payload.product_id), None)
     if product is None:
         raise HTTPException(status_code=404, detail="product not found")
@@ -79,10 +94,12 @@ def create_order(
 
 @app.get("/api/orders/{order_id}")
 def get_order(
-    order_id: str, authorization: Annotated[str | None, Header()] = None
+    order_id: str,
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Security(bearer_scheme)
+    ] = None,
 ) -> dict:
-    require_token(authorization)
+    require_token(credentials)
     if order_id not in ORDERS:
         raise HTTPException(status_code=404, detail="order not found")
     return {"code": 0, "data": ORDERS[order_id]}
-
