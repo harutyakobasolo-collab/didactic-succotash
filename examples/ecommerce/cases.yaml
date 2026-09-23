@@ -1,0 +1,102 @@
+cases:
+  - name: 用户登录与下单主链路
+    description: 验证动态 Token、接口关联、库存查询和订单创建
+    tags: [smoke, order]
+    variables:
+      quantity: 2
+    steps:
+      - name: 登录并提取访问令牌
+        request:
+          method: POST
+          path: /api/login
+          json:
+            username: ${username}
+            password: ${password}
+        extract:
+          access_token: $.data.access_token
+        assert:
+          - source: status_code
+            operator: eq
+            expected: 200
+          - source: $.code
+            operator: eq
+            expected: 0
+
+      - name: 查询商品并提取商品编号
+        request:
+          method: GET
+          path: /api/products
+          headers:
+            Authorization: Bearer ${access_token}
+          params:
+            keyword: keyboard
+        extract:
+          product_id: $.data.items[0].id
+          product_price: $.data.items[0].price
+        assert:
+          - source: status_code
+            operator: eq
+            expected: 200
+          - source: $.data.items[0].name
+            operator: eq
+            expected: ${expected_product_name}
+          - source: $.data.items
+            operator: length_eq
+            expected: 1
+
+      - name: 创建订单
+        request:
+          method: POST
+          path: /api/orders
+          headers:
+            Authorization: Bearer ${access_token}
+          json:
+            product_id: ${product_id}
+            quantity: ${quantity}
+        extract:
+          order_id: $.data.order_id
+        assert:
+          - source: status_code
+            operator: eq
+            expected: 201
+          - source: $.data.status
+            operator: eq
+            expected: created
+          - source: $.data.total_amount
+            operator: eq
+            expected: 598
+
+      - name: 查询订单最终状态
+        retry: 2
+        retry_interval_ms: 100
+        request:
+          method: GET
+          path: /api/orders/${order_id}
+          headers:
+            Authorization: Bearer ${access_token}
+        assert:
+          - source: status_code
+            operator: eq
+            expected: 200
+          - source: $.data.status
+            operator: contains
+            expected: created
+
+  - name: 无效令牌安全校验
+    description: 验证受保护接口拒绝非法 Token
+    tags: [smoke, security]
+    steps:
+      - name: 使用无效令牌访问商品接口
+        request:
+          method: GET
+          path: /api/products
+          headers:
+            Authorization: Bearer invalid-token
+        assert:
+          - source: status_code
+            operator: eq
+            expected: 401
+          - source: $.detail
+            operator: contains
+            expected: token
+
